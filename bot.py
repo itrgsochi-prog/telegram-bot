@@ -47,6 +47,9 @@ if not BOT_TOKEN:
 if not BASE_URL:
     raise RuntimeError("Не задан BASE_URL в переменных окружения Render")
 
+# нормализуем BASE_URL (убираем слэш в конце, если есть)
+BASE_URL = BASE_URL.rstrip("/")
+
 WEBHOOK_PATH = f"/webhook/{WEBHOOK_SECRET}"
 WEBHOOK_URL = f"{BASE_URL}{WEBHOOK_PATH}"
 
@@ -91,8 +94,10 @@ async def got_contact(message: Message):
     }
     save_db(db)
 
+    # ✅ Изменённый текст после сохранения номера
     await message.answer(
-        f"Спасибо! Номер сохранён: {message.contact.phone_number} ✅",
+        f"Спасибо, номер сохранён: {message.contact.phone_number}\n\n"
+        "Напишите название и адрес вашего объекта.",
         reply_markup=ReplyKeyboardRemove(),
     )
 
@@ -126,16 +131,22 @@ async def block_without_phone(message: Message):
 
 
 async def on_startup(app: web.Application):
-    # ставим вебхук при старте
     await bot.set_webhook(
         url=WEBHOOK_URL,
         secret_token=WEBHOOK_SECRET,
         drop_pending_updates=True,
     )
+    print("Webhook set:", WEBHOOK_URL)
 
 
+# ✅ ВАЖНО: webhook на shutdown НЕ удаляем
+# Render может часто перезапускать контейнер, и delete_webhook() приводит к url:"" в getWebhookInfo
 async def on_shutdown(app: web.Application):
-    await bot.delete_webhook()
+    print("Shutting down... (webhook NOT deleted)")
+
+
+async def health(request: web.Request) -> web.Response:
+    return web.Response(text="OK")
 
 
 def main():
@@ -143,6 +154,9 @@ def main():
 
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
+
+    # health-check: https://<BASE_URL>/health
+    app.router.add_get("/health", health)
 
     SimpleRequestHandler(
         dispatcher=dp,
