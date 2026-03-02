@@ -1,6 +1,5 @@
 import os
 import json
-import re
 from pathlib import Path
 from aiohttp import web
 
@@ -27,41 +26,13 @@ def save_db(db: dict) -> None:
     DB_PATH.write_text(json.dumps(db, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def normalize_phone(text: str) -> str:
-    # оставляем цифры и плюс
-    s = re.sub(r"[^\d+]", "", (text or "").strip())
-    # плюс только в начале
-    if s.count("+") > 1 or ("+" in s and not s.startswith("+")):
-        return ""
-    return s
-
-
-def is_valid_phone(phone: str) -> bool:
-    if not phone:
-        return False
-    # допустимы только + и цифры
-    if not re.fullmatch(r"\+?\d+", phone):
-        return False
-
-    digits = re.sub(r"\D", "", phone)
-    # E.164: 10..15 цифр — хороший практичный диапазон
-    if not (10 <= len(digits) <= 15):
-        return False
-
-    # чтобы не принимал "0000000000"
-    if digits.count(digits[0]) == len(digits):
-        return False
-
-    return True
-
-
 def contact_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="📱 Поделиться контактом", request_contact=True)],
         ],
         resize_keyboard=True,
-        # one_time_keyboard убрали
+        # one_time_keyboard не используем
     )
 
 
@@ -98,8 +69,7 @@ async def start(message: Message):
         return
 
     await message.answer(
-        "Привет! Чтобы продолжить, нажми кнопку и поделись контактом.\n"
-        "Если кнопки нет — просто напиши номер в формате +7XXXXXXXXXX.",
+        "Чтобы продолжить, нажми кнопку и поделись контактом 👇",
         reply_markup=contact_keyboard(),
     )
 
@@ -109,7 +79,7 @@ async def got_contact(message: Message):
     # контакт должен быть самого пользователя
     if not message.from_user or message.contact.user_id != message.from_user.id:
         await message.answer(
-            "Нужно отправить *свой* контакт через кнопку ниже.",
+            "Нужно отправить свой контакт через кнопку ниже 👇",
             reply_markup=contact_keyboard(),
         )
         return
@@ -123,7 +93,6 @@ async def got_contact(message: Message):
     }
     save_db(db)
 
-    # ✅ Изменённый текст после сохранения номера
     await message.answer(
         f"Спасибо, номер сохранён: {message.contact.phone_number}\n\n"
         "Напишите название и адрес вашего объекта.",
@@ -142,29 +111,9 @@ async def block_without_phone(message: Message):
     db = load_db()
     user_id = str(message.from_user.id)
 
-    # ✅ если номера нет, но пользователь написал его руками — попробуем распознать и сохранить
-    if (user_id not in db or not db[user_id].get("phone")) and message.text:
-        raw = (message.text or "").strip()
-        phone = normalize_phone(raw)
-
-        if is_valid_phone(phone):
-            db[user_id] = {
-                "phone": phone,
-                "first_name": message.from_user.first_name,
-                "username": message.from_user.username,
-            }
-            save_db(db)
-            await message.answer(
-                f"Спасибо, номер сохранён: {phone}\n\n"
-                "Напишите название и адрес вашего объекта.",
-                reply_markup=ReplyKeyboardRemove(),
-            )
-            return
-
     if user_id not in db or not db[user_id].get("phone"):
         await message.answer(
-            "Чтобы пользоваться ботом, нужно сначала поделиться номером телефона 👇\n"
-            "Если кнопки нет — просто напишите номер в формате +7XXXXXXXXXX.",
+            "Чтобы пользоваться ботом, нужно сначала поделиться номером телефона 👇",
             reply_markup=contact_keyboard(),
         )
 
